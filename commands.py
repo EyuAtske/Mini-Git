@@ -44,6 +44,7 @@ def commit(message):
     os.makedirs(os.path.dirname(ref_path), exist_ok=True)
     with open(ref_path, 'w') as f:
         f.write(sha)
+    clear_index()
     print(f"Committing with message: {message}")
 
 def status():
@@ -113,6 +114,10 @@ def write_index(sha1, file):
         for p, s in entities.items():
             f.write(f'{p}: {s}\n')
 
+def clear_index():
+    root_path = find_repo_root(os.getcwd())
+    index_path = os.path.join(root_path, 'Index')
+    open(index_path, 'w').close()
 def find_file(file):
     if os.path.exists(file):
         return os.path.abspath(file)
