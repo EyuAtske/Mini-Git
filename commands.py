@@ -24,7 +24,7 @@ def add(files):
         os.makedirs(object_path, exist_ok=True)
         compress_object(object_path, filename, file_path)
         write_index(sha1, file_path)
-
+    create_tree()
 def commit(message):
     print(f"Committing with message: {message}")
 
@@ -105,3 +105,48 @@ def search_in_repo(file, current_path):
         elif item == file:
             return item
     return None
+def create_tree():
+    root_path = find_repo_root(os.getcwd())
+    index_path = os.path.join(root_path, 'Index')
+    entities = []
+    with open(index_path, 'r') as f:
+        lines = f.readlines()
+        for line in lines:
+            files = line.split(': ')
+            create_entities(entities, files[0], files[1])
+            
+def create_entities(entities, file, sha1):
+    path_parts = file.split('/')
+    if len(path_parts) == 1:
+        entities.append(("100644", file, sha1))
+        tree_hash(("100644", file, sha1))
+    else:
+        create_subtree(entities, path_parts, sha1)
+
+def create_subtree(entities, path_parts, sha1):
+    dir_name = path_parts[0]
+    remaining_parts = path_parts[1:]
+    subtree = []
+    if len(remaining_parts) == 1:
+        subtree.append(("100644", remaining_parts[0], sha1))
+    else:
+        create_subtree(subtree, remaining_parts, sha1)
+    subtree_sha1 = tree_hash(subtree)
+    entities.append(("40000", dir_name, subtree_sha1))
+def tree_hash(entities):
+    tree_content = b''
+    for mode, name, sha1 in entities:
+        tree_content += f"{mode} {name}\0".encode() + bytes.fromhex(sha1)
+    header = f"tree {len(tree_content)}\0".encode()
+    full_content = header + tree_content
+    sha = hashlib.sha1(full_content).hexdigest()
+    dirname = sha[:2]
+    filename = sha[2:]
+    object_path = os.path.join(find_repo_root(os.getcwd()), 'objects', dirname)
+    os.makedirs(object_path, exist_ok=True)
+    compressed = zlib.compress(full_content)
+    object_file = os.path.join(object_path, filename)
+    if not os.path.exists(object_file):
+        with open(object_file, 'wb') as f:
+            f.write(compressed)
+    return sha  
