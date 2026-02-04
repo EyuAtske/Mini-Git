@@ -1,6 +1,7 @@
 import os
 import hashlib
 import zlib
+from datetime import datetime
 
 def init():
     filepath = os.path.join(os.getcwd(), '.mgit')
@@ -24,8 +25,25 @@ def add(files):
         os.makedirs(object_path, exist_ok=True)
         compress_object(object_path, filename, file_path)
         write_index(sha1, file_path)
-    create_tree()
 def commit(message):
+    tree_sha1 = create_tree()
+    commit_content = get_content(tree_sha1, message)
+    header = f"commit {len(commit_content)}\0".encode()
+    full_content = header + commit_content
+    sha = hashlib.sha1(full_content).hexdigest()
+    dirname = sha[:2]
+    filename = sha[2:]
+    object_path = os.path.join(find_repo_root(os.getcwd()), 'objects', dirname)
+    os.makedirs(object_path, exist_ok=True)
+    compressed = zlib.compress(full_content)
+    object_file = os.path.join(object_path, filename)
+    if not os.path.exists(object_file):
+        with open(object_file, 'wb') as f:
+            f.write(compressed)
+    ref_path = get_head_ref()
+    os.makedirs(os.path.dirname(ref_path), exist_ok=True)
+    with open(ref_path, 'w') as f:
+        f.write(sha)
     print(f"Committing with message: {message}")
 
 def status():
@@ -52,7 +70,7 @@ def find_repo_root(start_path):
         parent = os.path.dirname(current_path)
         if parent == current_path:
             print("NO mgit repository")
-            return ''
+            raise RuntimeError("Not inside an mgit repository")
         current_path = parent
 def read_bytes(file_path):
     with open(file_path, 'rb') as f:
@@ -80,59 +98,71 @@ def compress_object(object_path, filename, file):
             f.write(compressed)
 def write_index(sha1, file):
     root_path = find_repo_root(os.getcwd())
+    repo_root = os.path.dirname(root_path)
+    rel_path = os.path.relpath(file, repo_root)
     index_path = os.path.join(root_path, 'Index')
-    entry = f'{file}: {sha1}\n'
+    entry = f'{rel_path}: {sha1}\n'
+    entities = {}
     with open(index_path, 'r') as f:
-        existing_lines = set(f.readlines())
-    if entry not in existing_lines:
-        with open(index_path, 'a') as f:
-            f.write(entry)
+        lines = f.readlines()
+        for line in lines:
+            p, s = line.strip().split(': ')
+            entities[p] = s
+    entities[rel_path] = sha1
+    with open(index_path, 'w') as f:
+        for p, s in entities.items():
+            f.write(f'{p}: {s}\n')
 
 def find_file(file):
     if os.path.exists(file):
-        return file
+        return os.path.abspath(file)
     return search_in_repo(file, os.getcwd())
 
 def search_in_repo(file, current_path):
     dir_list = os.listdir(current_path)
     for item in dir_list:
+        if item == '.mgit':
+            continue
         item_path = os.path.join(current_path, item)
         if os.path.isdir(item_path):
             path = item
             result = search_in_repo(file, item_path)
             if result != None:
-                return path + '/' + result
+                return os.path.abspath(os.path.join(path, result))
         elif item == file:
-            return item
+            return os.path.abspath(item_path)
     return None
 def create_tree():
+    root = {}
     root_path = find_repo_root(os.getcwd())
     index_path = os.path.join(root_path, 'Index')
-    entities = []
     with open(index_path, 'r') as f:
         lines = f.readlines()
         for line in lines:
-            files = line.split(': ')
-            create_entities(entities, files[0], files[1])
+            path, sha1 = line.strip().split(': ')
+            add_path(root, path.split('/'), sha1)
+    return write_tree(root)
             
-def create_entities(entities, file, sha1):
-    path_parts = file.split('/')
-    if len(path_parts) == 1:
-        entities.append(("100644", file, sha1))
-        tree_hash(("100644", file, sha1))
-    else:
-        create_subtree(entities, path_parts, sha1)
+def add_path(tree, file, sha1):
+    if len(file) == 1:
+        tree[file[0]] = sha1
+        return
+    dirname = file[0]
+    if dirname not in tree:
+        tree[dirname] = {}
+    add_path(tree[dirname], file[1:], sha1)
 
-def create_subtree(entities, path_parts, sha1):
-    dir_name = path_parts[0]
-    remaining_parts = path_parts[1:]
-    subtree = []
-    if len(remaining_parts) == 1:
-        subtree.append(("100644", remaining_parts[0], sha1))
-    else:
-        create_subtree(subtree, remaining_parts, sha1)
-    subtree_sha1 = tree_hash(subtree)
-    entities.append(("40000", dir_name, subtree_sha1))
+
+def write_tree(tree):
+    entities = []
+    for name, value in sorted(tree.items()):
+        if isinstance(value, dict):
+            subtree_sha1 = write_tree(value)
+            entities.append(("40000", name, subtree_sha1))
+        else:
+            entities.append(("100644", name, value))
+    return tree_hash(entities)
+    
 def tree_hash(entities):
     tree_content = b''
     for mode, name, sha1 in entities:
@@ -150,3 +180,31 @@ def tree_hash(entities):
         with open(object_file, 'wb') as f:
             f.write(compressed)
     return sha  
+def get_content(tree_sha1, message):
+    lines = []
+    lines.append(f"tree {tree_sha1}")
+    parent = get_head()
+    if parent:
+        lines.append(f"parent {parent}")
+    timestamp = int(datetime.now().timestamp())
+    lines.append(f"time {timestamp}")
+    lines.append("")
+    lines.append(message)
+    return "\n".join(lines).encode()
+def get_head():
+    head_path = os.path.join(find_repo_root(os.getcwd()), "HEAD")
+    with open(head_path, 'r') as f:
+        ref = f.read().strip()
+    if ref.startswith('ref:'):
+        ref_path = ref.split(' ', 1)[1]
+        full_path = os.path.join(find_repo_root(os.getcwd()), ref_path)
+        if os.path.exists(full_path):
+            with open(full_path, 'r') as f:
+                return f.read().strip()
+        return None
+    return ref
+def get_head_ref():
+    head_path = os.path.join(find_repo_root(os.getcwd()), "HEAD")
+    with open(head_path) as f:
+        ref = f.read().strip()
+    return os.path.join(find_repo_root(os.getcwd()), ref.split(' ', 1)[1])
