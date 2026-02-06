@@ -69,7 +69,31 @@ def log():
         get_commit_info(commit_sha1)
 
 def checkout(target):
+    ref_path = get_head_ref()
+    with open(ref_path, 'r') as f:
+        commit_sha1 = f.read().strip()
+    if target == commit_sha1:
+        print(f"Already on {target}")
+        return  
+    else:
+        tree_sha1 = find_tree_hash(target)
+        root_path = os.path.dirname(find_repo_root(os.getcwd()))
+        restore_tree(root_path, tree_sha1)
+    root = find_repo_root(os.getcwd())
+    with open(os.path.join(root, "HEAD"), "w") as f:
+        f.write(target)
     print(f"Checking out to {target}...")
+
+def restore_head():
+    root = find_repo_root(os.getcwd())
+    head_path = os.path.join(root, "HEAD")
+    with open(head_path) as f:
+        content = f.read().strip()
+    if content.startswith('ref:'):
+        return
+    else:
+        with open(head_path, 'w') as f:
+            f.write('ref: refs/heads/main\n')
 
 def initsial_repos(path):
     os.makedirs(os.path.join(path, 'objects'), exist_ok=True)
@@ -227,10 +251,14 @@ def get_head_ref():
     head_path = os.path.join(find_repo_root(os.getcwd()), "HEAD")
     with open(head_path) as f:
         ref = f.read().strip()
-    return os.path.join(find_repo_root(os.getcwd()), ref.split(' ', 1)[1])
+    if ref.startswith('ref:'):
+        return os.path.join(find_repo_root(os.getcwd()), ref.split(' ', 1)[1])
+    return os.path.join(find_repo_root(os.getcwd()), "HEAD")
 def read_object(commit_sha1):
     root_path = find_repo_root(os.getcwd())
     object_path = os.path.join(root_path, 'objects', commit_sha1[:2], commit_sha1[2:])
+    if not os.path.exists(object_path):
+        raise RuntimeError(f"Object {commit_sha1} not found")
     with open(object_path, 'rb') as f:
         compressed = f.read()
     return zlib.decompress(compressed)
@@ -259,3 +287,32 @@ def read_index():
         for line in lines:
             files.append(line.split(": ",1)[0])
     return files
+
+def find_tree_hash(commit_sha1):
+    decompressed = read_object(commit_sha1)
+    commit = decompressed.split(b'\0', 1)[1]
+    lines = commit.decode().splitlines()
+    for line in lines:
+        if line.startswith("tree "):
+            return line.split(' ', 1)[1]
+    return None
+def restore_tree(root, tree):
+    decompressed = read_object(tree)
+    tree = decompressed.split(b'\0', 1)[1]
+    i = 0
+    while i < len(tree):
+        mode_end = tree.find(b' ', i)
+        name_end = tree.find(b'\0', mode_end)
+        mode = tree[i:mode_end].decode()
+        name = tree[mode_end+1:name_end].decode()
+        sha = tree[name_end+1:name_end+21].hex()
+        i = name_end + 21
+        fullpath = os.path.join(root, name)
+        if mode == "40000":
+            os.makedirs(fullpath, exist_ok=True)
+            restore_tree(fullpath, sha)
+        else:
+            blob_decompressed = read_object(sha)
+            blob = blob_decompressed.split(b'\0', 1)[1]
+            with open (fullpath, 'wb') as f:
+                f.write(blob)

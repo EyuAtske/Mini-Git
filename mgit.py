@@ -30,6 +30,8 @@ def __main__():
                     checkout(sys.argv[2])
             case "unstage":
                 unstage()
+            case "-rh":
+                restore_head()
             case _:
                 print(f"Unknown command: {sys.argv[1]}")
 if __name__ == "__main__":
