@@ -51,7 +51,14 @@ def status():
     print("Repository status: All files are up to date.")
 
 def log():
-    print("Repository log: No commits yet.")
+    ref_path = get_head_ref()
+    with open(ref_path, 'r') as f:
+        commit_sha1 = f.read().strip()
+    if commit_sha1 == "ref: refs/heads/main":
+        print("Repository log: No commits yet.")
+        return
+    else:
+        get_commit_info(commit_sha1)
 
 def checkout(target):
     print(f"Checking out to {target}...")
@@ -213,3 +220,25 @@ def get_head_ref():
     with open(head_path) as f:
         ref = f.read().strip()
     return os.path.join(find_repo_root(os.getcwd()), ref.split(' ', 1)[1])
+def read_object(commit_sha1):
+    root_path = find_repo_root(os.getcwd())
+    object_path = os.path.join(root_path, 'objects', commit_sha1[:2], commit_sha1[2:])
+    with open(object_path, 'rb') as f:
+        compressed = f.read()
+    return zlib.decompress(compressed)
+def get_commit_info(commit_sha1):
+    while commit_sha1:
+        decompressed = read_object(commit_sha1)
+        commit = decompressed.split(b'\0', 1)[1]
+        lines = commit.decode().splitlines()
+        print(f"Commit: {commit_sha1}")
+        parent_sha1 = None
+        for line in lines:
+            if line.startswith("parent "):
+                parent_sha1 = line.split(' ', 1)[1]
+            elif line == "":
+                continue
+            else:
+                print(line)
+        print()
+        commit_sha1 = parent_sha1
