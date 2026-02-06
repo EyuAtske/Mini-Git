@@ -48,13 +48,21 @@ def commit(message):
     print(f"Committing with message: {message}")
 
 def status():
-    print("Repository status: All files are up to date.")
+    files = read_index()
+    if len(files) == 0:
+        print("No changes staged for commit")
+    else:
+        added_files = "\n".join(files)
+        print(f"Changes to be commited\n (use unstage to remove this files from the staging area)\n {added_files}")
+
+def unstage():
+    clear_index()
 
 def log():
     ref_path = get_head_ref()
     with open(ref_path, 'r') as f:
         commit_sha1 = f.read().strip()
-    if commit_sha1 == "ref: refs/heads/main":
+    if not commit_sha1:
         print("Repository log: No commits yet.")
         return
     else:
@@ -242,3 +250,12 @@ def get_commit_info(commit_sha1):
                 print(line)
         print()
         commit_sha1 = parent_sha1
+def read_index():
+    root_path = find_repo_root(os.getcwd())
+    index_path = os.path.join(root_path, 'Index')
+    files = []
+    with open(index_path, 'r') as f:
+        lines = f.readlines()
+        for line in lines:
+            files.append(line.split(": ",1)[0])
+    return files

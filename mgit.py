@@ -28,6 +28,8 @@ def __main__():
                     print("Please specify a branch or commit to checkout.")
                 else:
                     checkout(sys.argv[2])
+            case "unstage":
+                unstage()
             case _:
                 print(f"Unknown command: {sys.argv[1]}")
 if __name__ == "__main__":
