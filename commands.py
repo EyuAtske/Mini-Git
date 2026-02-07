@@ -14,18 +14,12 @@ def init():
 
 def add(files):
     print(f"Adding files: {', '.join(files)}")
-    for file in files:
-        file_path = find_file(file)
-        if file_path == None:
-            print(f"File {file} does not exist.")
-            return
-        sha1 = hashed(file_path)
-        dirname = sha1[:2]
-        filename = sha1[2:]
-        object_path = os.path.join(find_repo_root(os.getcwd()), 'objects', dirname)
-        os.makedirs(object_path, exist_ok=True)
-        compress_object(object_path, filename, file_path)
-        write_index(sha1, file_path)
+    add_files(files)
+def add_all():
+    print("Adding all files")
+    files = find_all_files()
+    add_files(files)
+
 def commit(message):
     tree_sha1 = create_tree()
     commit_content = get_content(tree_sha1, message)

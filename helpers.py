@@ -79,6 +79,40 @@ def search_in_repo(file, current_path):
         elif item == file:
             return os.path.abspath(item_path)
     return None
+
+def add_files(files):
+    for file in files:
+        file_path = find_file(file)
+        if file_path is None:
+            print(f"File {file} does not exist.")
+            return
+        sha1 = hashed(file_path)
+        dirname = sha1[:2]
+        filename = sha1[2:]
+        object_path = os.path.join(find_repo_root(os.getcwd()), 'objects', dirname)
+        os.makedirs(object_path, exist_ok=True)
+        compress_object(object_path, filename, file_path)
+        write_index(sha1, file_path)
+
+def find_all_files():
+    root = os.path.dirname(find_repo_root(os.getcwd()))
+    dir_list = os.listdir(root)
+    files = []
+    search_dir(files, root)
+    return files
+    
+def search_dir(files, current):
+    dir_list = os.listdir(current)
+    for item in dir_list:
+        if item == '.mgit':
+            continue
+        item_path = os.path.join(current, item)
+        if os.path.isdir(item_path):
+            search_dir(files, item_path)
+        elif os.path.isfile(item):
+            files.append(item)
+        
+
 def create_tree():
     root = {}
     root_path = find_repo_root(os.getcwd())
