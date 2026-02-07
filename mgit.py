@@ -1,10 +1,11 @@
+#!/usr/bin/env python3
 import sys
 from commands import *
 
-def __main__():
+def main():
     if len(sys.argv) < 2:
         print("Invalid usage. Please provide at least one argument.")
-        sys.exit(1)
+        return
     else:
         match(sys.argv[1]):
             case "init":
@@ -55,4 +56,4 @@ def __main__():
             case _:
                 print(f"Unknown command: {sys.argv[1]}")
 if __name__ == "__main__":
-    __main__()
+    main()
